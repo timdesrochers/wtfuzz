@@ -1,96 +1,83 @@
-import argparse
 import os
 import sys
+import argparse
 import pdb
-
 from PIL import Image
-from imagehash import phash
-from tqdm import tqdm
+import imagehash
 
-# Constants
-NORMALIZE_SIZE = 768
-ROI_SIZE = 512
+def normalize(image_path):
+    with Image.open(image_path) as img:
+        width, height = img.size
+        if min(width, height) != 768:
+            if width > height:
+                ratio = 768 / height
+                new_size = (int(width * ratio), 768)
+            else:
+                ratio = 768 / width
+                new_size = (768, int(height * ratio))
+            img = img.resize(new_size, Image.ANTIALIAS)
+        center_x, center_y = img.size[0] // 2, img.size[1] // 2
+        roi = img.crop((center_x - 256, center_y - 256, center_x + 256, center_y + 256))
+        return roi
 
-def normalize_image(image):
-    """
-    Normalize the input image based on the shortest side,
-    scaling either up or down to NORMALIZE_SIZE on the shortest side.
-    """
-    width, height = image.size
-    if width < height:
-        scale = NORMALIZE_SIZE / width
-    else:
-        scale = NORMALIZE_SIZE / height
-    new_size = (int(width * scale), int(height * scale))
-    return image.resize(new_size)
+def get_image_hash(image_path, hashfunc=imagehash.phash, hash_size=16):
+    image = normalize(image_path)
+    hash_value = hashfunc(image, hash_size=hash_size)
+    print(f"{image_path} -- hash: {hash_value}")
+    return hash_value
 
-def get_roi(image):
-    """
-    Isolate a ROI of size ROI_SIZE x ROI_SIZE from the center of the input image.
-    """
-    width, height = image.size
-    left = (width - ROI_SIZE) / 2
-    top = (height - ROI_SIZE) / 2
-    right = (width + ROI_SIZE) / 2
-    bottom = (height + ROI_SIZE) / 2
-    return image.crop((left, top, right, bottom))
+def find_duplicates(image_dir, threshold, verbose, verboser, debug):
+    image_hashes = {}
+    for root, dirs, files in os.walk(image_dir):
+        for name in files:
+            if name.endswith(('.jpg', '.jpeg', '.png')):
+                path = os.path.join(root, name)
+                hash_value = get_image_hash(path)
+                if hash_value in image_hashes:
+                    image_hashes[hash_value].append(path)
+                else:
+                    image_hashes[hash_value] = [path]
+    if verbose or verboser:
+        print("Summary Table")
+        print("{:<40} {:<20} {}".format('File', 'Dimensions', 'Hash'))
+    for key in image_hashes:
+        if len(image_hashes[key]) > 1:
+            if verboser:
+                print(f"Potential duplicates -- hash: {key}")
+                for path in image_hashes[key]:
+                    print(f"\t{path}")
+            else:
+                if verbose:
+                    print(f"{image_hashes[key]}")
+                else:
+                    print(f"Potential duplicates found for hash {key}:")
+                    for path in image_hashes[key]:
+                        print(f"\t{path}")
+                if debug:
+                    pdb.run("normalize(path).show()")
 
-def get_fuzzy_hash(image, threshold):
-    """
-    Generate a fuzzy hash for the input image using the specified threshold.
-    """
-    return phash(image, hash_size=8, highfreq_factor=4, threshold=threshold)
+def main():
+    parser = argparse.ArgumentParser(description='Find duplicate images in a directory.')
+    parser.add_argument('directory', type=str, help='Directory of images to check for duplicates')
+    parser.add_argument('-t', '--threshold', type=int, default=10,
+                        help='Threshold value to set the hamming distance used in the fuzzy hashing')
+    parser.add_argument('-v', '--verbose', action='store_true',
+                        help='Increase output verbosity')
+    parser.add_argument('-vv', '--verboser', action='store_true',
+                        help='Greatly increase output verbosity')
+    parser.add_argument('--debug', action='store_true',
+                        help='Enter pdb interactive debugger')
+    args = parser.parse_args()
 
-def hash_directory(directory, threshold, verbose=False, verboser=False, debug=False):
-    """
-    Hash all images in the specified directory using the specified threshold.
-    Print out a summary table of the filename, original image dimensions, and the fuzzy hash for each image.
-    """
-    if debug:
-        pdb.set_trace()
+    if not os.path.isdir(args.directory):
+        print(f"{args.directory} is not a directory")
+        sys.exit(1)
 
-    hashes = {}
-    for filename in tqdm(os.listdir(directory)):
-        filepath = os.path.join(directory, filename)
-        try:
-            image = Image.open(filepath)
-        except Exception as e:
-            print(f"Error: Could not open {filename}: {str(e)}")
-            continue
+    if args.threshold < 1 or args.threshold > 20:
+        print("Threshold value should be between 1 and 20.")
+        sys.exit(1)
 
-        # Normalize the image based on the shortest side
-        image = normalize_image(image)
-        if verbose or verboser:
-            print(f"Normalized {filename}: {image.size}")
+    find_duplicates(args.directory, args.threshold, args.verbose, args.verboser, args.debug)
 
-        # Get the ROI from the center of the normalized image
-        image = get_roi(image)
-        if verbose or verboser:
-            print(f"Extracted ROI from {filename}: {image.size}")
-
-        # Generate the fuzzy hash for the ROI
-        image_hash = get_fuzzy_hash(image, threshold)
-        if verbose or verboser:
-            print(f"Calculated hash for {filename}: {image_hash}")
-        
-        # Add the hash to the dictionary of hashes
-        hashes[filename] = (image.size, image_hash)
-
-    # Print out a summary table of the filename, original image dimensions, and the fuzzy hash
-    print("Results:")
-    print("Filename\t\tOriginal size\t\tHash")
-    for filename, (size, image_hash) in hashes.items():
-        print(f"{filename:20}{size}\t{str(image_hash)}")
-
-    # Find suspected duplicates based on fuzzy hash
-    duplicates = {}
-    for filename, (size, image_hash) in hashes.items():
-        for filename2, (size2, image_hash2) in hashes.items():
-            if filename != filename2 and (image_hash - image_hash2) <= threshold:
-                if filename not in duplicates:
-                    duplicates[filename] = []
-                duplicates[filename].append(filename2)
-
-    # Print out any suspected duplicates
-    if duplicates:
-        print("\
+if __name__ == '__main__':
+    main()
