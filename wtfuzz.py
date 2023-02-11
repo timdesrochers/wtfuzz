@@ -10,8 +10,8 @@ def get_fuzzy_hash(image, threshold):
     return hash
 
 def get_roi(image, debug):
-    h, w = image.size
-    size = min(h, w)
+    w, h = image.size
+    size = min(w, h)
     h_offset = (h - size) // 2
     w_offset = (w - size) // 2
     roi = image.crop((w_offset, h_offset, w_offset + size, h_offset + size))
@@ -24,10 +24,16 @@ def get_roi(image, debug):
 
 
 def normalize_image(image, debug):
-    h, w = image.size
-    scale_factor = 768 / min(h, w)
-    new_w = int(w * scale_factor)
-    new_h = int(h * scale_factor)
+    w, h = image.size
+#    scale_factor = 768 / min(h, w)
+#    new_w = int(w * scale_factor)
+#    new_h = int(h * scale_factor)
+    if h < w:
+        new_h = 768
+        new_w = int(w * (new_h / h))
+    else:
+        new_w = 768
+        new_h = int(h * (new_w / w))
     image = image.resize((new_w, new_h), Image.ANTIALIAS)
     print(f'32.Normalized image dimensions: {image.size}')
     if debug:
