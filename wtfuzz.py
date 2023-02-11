@@ -42,7 +42,11 @@ def normalize_image(image, debug):
     return image
 
 def process_image(image_path, threshold, debug):
-    image = Image.open(image_path)
+    try:
+        image = Image.open(image_path)
+    except IOError:
+        print(f'{image_path} is not an image file. Skipping...')
+        return
     print(f'Processing image: {image_path}')
     print(f'41.Original image dimensions: {image.size}')
 
@@ -59,15 +63,20 @@ def process_image(image_path, threshold, debug):
     return image_path, fuzzy_hash
 
 def process_images(image_dir, threshold, debug):
+#   filenames = os.listdir(image_dir)
     image_hashes = {}
     for filename in os.listdir(image_dir):
         image_path = os.path.join(image_dir, filename)
         if os.path.isfile(image_path):
-            image_path, fuzzy_hash = process_image(image_path, threshold, debug)
+            try:
+                image_path, fuzzy_hash = process_image(image_path, threshold, debug)
+            except TypeError:
+                print(f'{image_path} seems not to be an image file. Skipping...')
+                return
             image_hashes[image_path] = fuzzy_hash
-
+    
     print('\nSummary:')
-    print('Filename\t\t\t\tOriginal Dimensions\t\tFuzzy Hash')
+    print('Filename\t\tOriginal Dimensions\t\tFuzzy Hash')
     for image_path, fuzzy_hash in image_hashes.items():
         image = Image.open(image_path)
         print(f'{image_path}\t\t{image.size}\t\t{fuzzy_hash}')
