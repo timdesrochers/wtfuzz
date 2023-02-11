@@ -1,3 +1,7 @@
-Pillow==8.4.0
-imagehash==4.2.1
-argparse==1.4.0
+Pillow
+imagehash
+argparse
+numpy
+opencv-python
+opencv-python-headless
+

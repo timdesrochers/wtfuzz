@@ -3,85 +3,86 @@ import os
 import pdb
 from PIL import Image
 import imagehash
-from collections import defaultdict
+
+def get_fuzzy_hash(image, threshold):
+    # calculate the pHash for the image
+    hash = imagehash.phash(image)
+    return hash
+
+def get_roi(image, debug):
+    h, w = image.size
+    size = min(h, w)
+    h_offset = (h - size) // 2
+    w_offset = (w - size) // 2
+    roi = image.crop((w_offset, h_offset, w_offset + size, h_offset + size))
+    roi = roi.resize((512, 512))
+    print(f'ROI image dimensions: {roi.size}')
+    if debug:
+        roi.show()
+        pdb.set_trace()
+    return roi
 
 
-def normalize_image(image, new_size):
-    """Scales the shortest side of an image to the given new_size and crops the center of the image to a square of 512x512px."""
-    width, height = image.size
-    if width < height:
-        ratio = new_size / width
-    else:
-        ratio = new_size / height
-    image = image.resize((int(width * ratio), int(height * ratio)))
-    width, height = image.size
-    left = (width - 512) / 2
-    top = (height - 512) / 2
-    right = (width + 512) / 2
-    bottom = (height + 512) / 2
-    image = image.crop((left, top, right, bottom))
+def normalize_image(image, debug):
+    h, w = image.size
+    size = min(h, w)
+    scale_factor = 768 / size
+    new_h = int(h * scale_factor)
+    new_w = int(w * scale_factor)
+    image = image.resize((new_w, new_h), Image.ANTIALIAS)
+    print(f'Normalized image dimensions: {image.size}')
+    if debug:
+        image.show()
+        pdb.set_trace()
     return image
 
+def process_image(image_path, threshold, debug):
+    image = Image.open(image_path)
+    print(f'Processing image: {image_path}')
+    print(f'Original image dimensions: {image.size}')
 
-def hash_image(image_path, threshold, verbose=False):
-    """Takes an image path and a threshold value, hashes the image, and returns the hash value"""
-    with Image.open(image_path) as image:
-        if verbose:
-            print(f"Opened image: {image_path}")
-            print(f"Size: {image.size}")
-        image = normalize_image(image, 768)
-        if verbose:
-            print(f"Normalized size: {image.size}")
-        hash_val = str(imagehash.phash(image, hash_size=16, hash=ImageHash.Fuzzy()))
-        if verbose:
-            print(f"Fuzzy hash value: {hash_val}")
-        return hash_val
+    image = normalize_image(image, debug)
+    print(f'Normalized image dimensions: {image.size}')
 
-
-def find_duplicates(image_dir, threshold, verbose=False, verboser=False, debug=False):
-    """Find suspected duplicate images in a directory using a fuzzy hash algorithm and the given threshold value"""
-    image_hash_dict = defaultdict(list)
-    for filename in os.listdir(image_dir):
-        if filename.endswith(".jpg") or filename.endswith(".jpeg") or filename.endswith(".png"):
-            image_path = os.path.join(image_dir, filename)
-            if verbose or verboser:
-                print(f"Processing image: {image_path}")
-            if debug:
-                pdb.set_trace()
-            hash_val = hash_image(image_path, threshold, verbose=verboser)
-            image_hash_dict[hash_val].append(filename)
-
-    if verboser:
-        print("Final hash dictionary:")
-        for hash_val, filenames in image_hash_dict.items():
-            print(f"Hash value: {hash_val}")
-            print("Filenames:")
-            for filename in filenames:
-                print(f"\t{filename}")
-
-    suspected_duplicates = []
-    for hash_val, filenames in image_hash_dict.items():
-        if len(filenames) > 1:
-            suspected_duplicates.append(filenames)
-    
-    if verbose:
-        print("Suspected duplicate image sets:")
-        for duplicate_set in suspected_duplicates:
-            print(duplicate_set)
-    
-    return suspected_duplicates
-
-
-def main():
-    parser = argparse.ArgumentParser(description="Find suspected duplicate images in a directory using a fuzzy hash algorithm.")
-    parser.add_argument("image_dir", help="Path to directory of images")
-    parser.add_argument("--threshold", type=int, default=10, help="Hamming distance threshold for fuzzy hashing (suggested range: 1-20)")
-    parser.add_argument("--verbose", action="store_true", help="Print more information")
-    parser.add_argument("--verboser", action="store_true", help="Print even more information")
-    parser.add_argument("--debug", action="store_true", help="Start program in debug mode")
-    args = parser.parse_args()
-
-    if args.debug:
+    roi = get_roi(image, debug)
+    print(f'ROI image dimensions: {roi.size}')
+    if debug:
         pdb.set_trace()
 
-    suspected_duplicates = find_duplicates(args.image_dir, args.threshold, verbose=args.verbose, verboser
+    fuzzy_hash = get_fuzzy_hash(roi, threshold)
+    print(f'Fuzzy hash: {fuzzy_hash}')
+    return image_path, fuzzy_hash
+
+def process_images(image_dir, threshold, debug):
+    image_hashes = {}
+    for filename in os.listdir(image_dir):
+        image_path = os.path.join(image_dir, filename)
+        if os.path.isfile(image_path):
+            image_path, fuzzy_hash = process_image(image_path, threshold, debug)
+            image_hashes[image_path] = fuzzy_hash
+
+    print('\nSummary:')
+    print('Filename\t\t\t\tOriginal Dimensions\t\tFuzzy Hash')
+    for image_path, fuzzy_hash in image_hashes.items():
+        image = Image.open(image_path)
+        print(f'{image_path}\t\t{image.size}\t\t{fuzzy_hash}')
+
+    print('\nDuplicate Images:')
+    for image1, hash1 in image_hashes.items():
+        for image2, hash2 in image_hashes.items():
+            hamming_distance = hash1 - hash2
+            if hamming_distance <= threshold and image1 != image2:
+                print(f'{image1} and {image2} are suspected duplicates with hamming distance of {hamming_distance}')
+
+def main():
+    parser = argparse.ArgumentParser(description='Process a directory of images and generate fuzzy hashes.')
+    parser.add_argument('image_dir', help='Directory of images to process')
+    parser.add_argument('--threshold', type=int, default=20, help='Hamming distance threshold for fuzzy hashing')
+    parser.add_argument('--debug', action='store_true', help='Enable debugging with pdb')
+    args = parser.parse_args()
+
+    process_images(args.image_dir, args.threshold, args.debug)
+
+if __name__ == '__main__':
+    main()
+
