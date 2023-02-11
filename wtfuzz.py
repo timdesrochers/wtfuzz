@@ -1,70 +1,64 @@
 import argparse
 import os
-from PIL import Image
+import sys
 import imagehash
+from PIL import Image
 
+def get_duplicate_images(folder, threshold, verbose):
+    if not os.path.exists(folder):
+        print("Folder path is invalid!")
+        sys.exit()
 
-def fuzzy_hash(filepath, hash_size=8):
-    with Image.open(filepath) as image:
-        image_hash = imagehash.phash(image, hash_size=hash_size)
-        return str(image_hash)
+    image_files = []
+    for file in os.listdir(folder):
+        if file.lower().endswith(('.png', '.jpg', '.jpeg')):
+            image_files.append(os.path.join(folder, file))
 
-
-def process_images(images_path, threshold, hash_size, verbose, verboser):
-    hashes = {}
-    duplicates = []
-
-    for filename in os.listdir(images_path):
-        filepath = os.path.join(images_path, filename)
-        if os.path.isfile(filepath):
-            try:
-                image_hash = fuzzy_hash(filepath, hash_size=hash_size)
-            except OSError:
-                print(f"Error reading {filepath}")
-                continue
-
+    hash_dict = {}
+    for image_file in image_files:
+        with Image.open(image_file) as image:
+            hash_value = str(imagehash.average_hash(image))
             if verbose:
-                print(f"Hashed {filename} as {image_hash}")
+                print(f"{image_file} hash value: {hash_value}")
+            if hash_value in hash_dict:
+                hash_dict[hash_value].append(image_file)
+            else:
+                hash_dict[hash_value] = [image_file]
 
-            for existing_filename, existing_image_hash in hashes.items():
-                hamming_distance = imagehash.hex_to_hash(existing_image_hash) - imagehash.hex_to_hash(image_hash)
-                if hamming_distance <= threshold:
-                    if verboser:
-                        print(f"{filename} is a suspected duplicate of {existing_filename} (hamming distance: {hamming_distance})")
-                    else:
-                        print(f"{filename} is a suspected duplicate of {existing_filename}")
-                    duplicates.append((filename, existing_filename))
-                    break
+    duplicate_images = []
+    for hash_value, images in hash_dict.items():
+        if len(images) > 1:
+            for i in range(len(images)):
+                for j in range(i+1, len(images)):
+                    diff = imagehash.hexhamming(images[i], images[j])
+                    if verbose:
+                        print(f"Hamming distance between {images[i]} and {images[j]}: {diff}")
+                    if diff <= threshold:
+                        duplicate_images.append((images[i], images[j]))
 
-            hashes[filename] = image_hash
+    if not duplicate_images:
+        print("No duplicate images found!")
+    else:
+        print("Duplicate images found:")
+        for pair in duplicate_images:
+            print(pair)
 
-    return duplicates
+def main():
+    parser = argparse.ArgumentParser(description='Find duplicate images')
+    parser.add_argument('folder', help='path to image folder')
+    parser.add_argument('--threshold', type=int, default=5,
+                        help='threshold for considering images duplicates (recommended range: 3-10)')
+    parser.add_argument('--verbose', '-v', action='store_true', help='increase verbosity')
+    parser.add_argument('--verboser', '-vv', action='store_true', help='increase verbosity and print comments')
 
-
-if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description='Find fuzzy duplicates in a directory of images')
-    parser.add_argument('images_path', help='Path to directory containing images')
-    parser.add_argument('--hash-size', type=int, default=8, help='Hash size for image hashing (default: 8)')
-    parser.add_argument('--threshold', type=int, default=6, help='Maximum acceptable Hamming distance (default: 6, valid range: 0-64)')
-    parser.add_argument('--verbose', action='store_true', help='Verbose mode, print hashed filename')
-    parser.add_argument('--verboser', action='store_true', help='Even more verbose mode, print explanatory comments')
     args = parser.parse_args()
 
-    if not 0 <= args.threshold <= 64:
-        parser.error('--threshold must be between 0 and 64')
-
     if args.verboser:
-        for arg in vars(args):
-            print(f"{arg}: {getattr(args, arg)}")
-        print("Finding fuzzy duplicates in directory", args.images_path)
-        print("Using hash size:", args.hash_size)
-        print(f"Threshold set at {args.threshold} - images with a Hamming distance lower than this value will be considered as duplicates")
+        print("Getting all image files from folder")
+        print("Calculating image hashes")
+        print("Looking for duplicates using hamming distance")
 
-    duplicates = process_images(args.images_path, args.threshold, args.hash_size, args.verbose, args.verboser)
+    get_duplicate_images(args.folder, args.threshold, args.verbose)
 
-    if duplicates:
-        print("Suspected duplicates:")
-        for pair in duplicates:
-            print(pair[0], pair[1])
-    else:
-        print("No duplicates found.")
+if __name__ == '__main__':
+    main()
