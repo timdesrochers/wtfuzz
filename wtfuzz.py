@@ -1,83 +1,87 @@
-import os
-import sys
 import argparse
+import os
 import pdb
 from PIL import Image
 import imagehash
+from collections import defaultdict
 
-def normalize(image_path):
-    with Image.open(image_path) as img:
-        width, height = img.size
-        if min(width, height) != 768:
-            if width > height:
-                ratio = 768 / height
-                new_size = (int(width * ratio), 768)
-            else:
-                ratio = 768 / width
-                new_size = (768, int(height * ratio))
-            img = img.resize(new_size, Image.ANTIALIAS)
-        center_x, center_y = img.size[0] // 2, img.size[1] // 2
-        roi = img.crop((center_x - 256, center_y - 256, center_x + 256, center_y + 256))
-        return roi
 
-def get_image_hash(image_path, hashfunc=imagehash.phash, hash_size=16):
-    image = normalize(image_path)
-    hash_value = hashfunc(image, hash_size=hash_size)
-    print(f"{image_path} -- hash: {hash_value}")
-    return hash_value
+def normalize_image(image, new_size):
+    """Scales the shortest side of an image to the given new_size and crops the center of the image to a square of 512x512px."""
+    width, height = image.size
+    if width < height:
+        ratio = new_size / width
+    else:
+        ratio = new_size / height
+    image = image.resize((int(width * ratio), int(height * ratio)))
+    width, height = image.size
+    left = (width - 512) / 2
+    top = (height - 512) / 2
+    right = (width + 512) / 2
+    bottom = (height + 512) / 2
+    image = image.crop((left, top, right, bottom))
+    return image
 
-def find_duplicates(image_dir, threshold, verbose, verboser, debug):
-    image_hashes = {}
-    for root, dirs, files in os.walk(image_dir):
-        for name in files:
-            if name.endswith(('.jpg', '.jpeg', '.png')):
-                path = os.path.join(root, name)
-                hash_value = get_image_hash(path)
-                if hash_value in image_hashes:
-                    image_hashes[hash_value].append(path)
-                else:
-                    image_hashes[hash_value] = [path]
-    if verbose or verboser:
-        print("Summary Table")
-        print("{:<40} {:<20} {}".format('File', 'Dimensions', 'Hash'))
-    for key in image_hashes:
-        if len(image_hashes[key]) > 1:
-            if verboser:
-                print(f"Potential duplicates -- hash: {key}")
-                for path in image_hashes[key]:
-                    print(f"\t{path}")
-            else:
-                if verbose:
-                    print(f"{image_hashes[key]}")
-                else:
-                    print(f"Potential duplicates found for hash {key}:")
-                    for path in image_hashes[key]:
-                        print(f"\t{path}")
-                if debug:
-                    pdb.run("normalize(path).show()")
+
+def hash_image(image_path, threshold, verbose=False):
+    """Takes an image path and a threshold value, hashes the image, and returns the hash value"""
+    with Image.open(image_path) as image:
+        if verbose:
+            print(f"Opened image: {image_path}")
+            print(f"Size: {image.size}")
+        image = normalize_image(image, 768)
+        if verbose:
+            print(f"Normalized size: {image.size}")
+        hash_val = str(imagehash.phash(image, hash_size=16, hash=ImageHash.Fuzzy()))
+        if verbose:
+            print(f"Fuzzy hash value: {hash_val}")
+        return hash_val
+
+
+def find_duplicates(image_dir, threshold, verbose=False, verboser=False, debug=False):
+    """Find suspected duplicate images in a directory using a fuzzy hash algorithm and the given threshold value"""
+    image_hash_dict = defaultdict(list)
+    for filename in os.listdir(image_dir):
+        if filename.endswith(".jpg") or filename.endswith(".jpeg") or filename.endswith(".png"):
+            image_path = os.path.join(image_dir, filename)
+            if verbose or verboser:
+                print(f"Processing image: {image_path}")
+            if debug:
+                pdb.set_trace()
+            hash_val = hash_image(image_path, threshold, verbose=verboser)
+            image_hash_dict[hash_val].append(filename)
+
+    if verboser:
+        print("Final hash dictionary:")
+        for hash_val, filenames in image_hash_dict.items():
+            print(f"Hash value: {hash_val}")
+            print("Filenames:")
+            for filename in filenames:
+                print(f"\t{filename}")
+
+    suspected_duplicates = []
+    for hash_val, filenames in image_hash_dict.items():
+        if len(filenames) > 1:
+            suspected_duplicates.append(filenames)
+    
+    if verbose:
+        print("Suspected duplicate image sets:")
+        for duplicate_set in suspected_duplicates:
+            print(duplicate_set)
+    
+    return suspected_duplicates
+
 
 def main():
-    parser = argparse.ArgumentParser(description='Find duplicate images in a directory.')
-    parser.add_argument('directory', type=str, help='Directory of images to check for duplicates')
-    parser.add_argument('-t', '--threshold', type=int, default=10,
-                        help='Threshold value to set the hamming distance used in the fuzzy hashing')
-    parser.add_argument('-v', '--verbose', action='store_true',
-                        help='Increase output verbosity')
-    parser.add_argument('-vv', '--verboser', action='store_true',
-                        help='Greatly increase output verbosity')
-    parser.add_argument('--debug', action='store_true',
-                        help='Enter pdb interactive debugger')
+    parser = argparse.ArgumentParser(description="Find suspected duplicate images in a directory using a fuzzy hash algorithm.")
+    parser.add_argument("image_dir", help="Path to directory of images")
+    parser.add_argument("--threshold", type=int, default=10, help="Hamming distance threshold for fuzzy hashing (suggested range: 1-20)")
+    parser.add_argument("--verbose", action="store_true", help="Print more information")
+    parser.add_argument("--verboser", action="store_true", help="Print even more information")
+    parser.add_argument("--debug", action="store_true", help="Start program in debug mode")
     args = parser.parse_args()
 
-    if not os.path.isdir(args.directory):
-        print(f"{args.directory} is not a directory")
-        sys.exit(1)
+    if args.debug:
+        pdb.set_trace()
 
-    if args.threshold < 1 or args.threshold > 20:
-        print("Threshold value should be between 1 and 20.")
-        sys.exit(1)
-
-    find_duplicates(args.directory, args.threshold, args.verbose, args.verboser, args.debug)
-
-if __name__ == '__main__':
-    main()
+    suspected_duplicates = find_duplicates(args.image_dir, args.threshold, verbose=args.verbose, verboser
