@@ -39,6 +39,5 @@ if __name__ == '__main__':
     parser.add_argument('directory', type=str, help='path to the image directory')
     parser.add_argument('--debug', action='store_true', help='enable debugging mode')
     parser.add_argument('--verbose', action='store_true', help='enable verbose output')
-    parser.add_argument('--help', action='help', help='show this help message and exit')
     args = parser.parse_args()
     normalize_and_hash_images(args.directory, args.debug, args.verbose)
