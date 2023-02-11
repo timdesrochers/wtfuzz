@@ -16,7 +16,7 @@ def get_roi(image, debug):
     w_offset = (w - size) // 2
     roi = image.crop((w_offset, h_offset, w_offset + size, h_offset + size))
     roi = roi.resize((512, 512))
-    print(f'ROI image dimensions: {roi.size}')
+    print(f'19.ROI image dimensions: {roi.size}')
     if debug:
         roi.show()
         pdb.set_trace()
@@ -25,12 +25,11 @@ def get_roi(image, debug):
 
 def normalize_image(image, debug):
     h, w = image.size
-    size = min(h, w)
-    scale_factor = 768 / size
-    new_h = int(h * scale_factor)
+    scale_factor = 768 / min(h, w)
     new_w = int(w * scale_factor)
+    new_h = int(h * scale_factor)
     image = image.resize((new_w, new_h), Image.ANTIALIAS)
-    print(f'Normalized image dimensions: {image.size}')
+    print(f'32.Normalized image dimensions: {image.size}')
     if debug:
         image.show()
         pdb.set_trace()
@@ -39,10 +38,10 @@ def normalize_image(image, debug):
 def process_image(image_path, threshold, debug):
     image = Image.open(image_path)
     print(f'Processing image: {image_path}')
-    print(f'Original image dimensions: {image.size}')
+    print(f'41.Original image dimensions: {image.size}')
 
     image = normalize_image(image, debug)
-    print(f'Normalized image dimensions: {image.size}')
+    print(f'44.Normalized image dimensions: {image.size}')
 
     roi = get_roi(image, debug)
     print(f'ROI image dimensions: {roi.size}')
