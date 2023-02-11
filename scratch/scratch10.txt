@@ -1,0 +1,86 @@
+import os
+import argparse
+from PIL import Image
+import imagehash
+
+def normalize_image(image):
+    """Normalize the given image to a standard size (768x768) and return a new image."""
+    image = image.convert('RGB')
+    shortest_side = min(image.size)
+    scale = 768/shortest_side
+    new_size = (int(image.size[0]*scale), int(image.size[1]*scale))
+    return image.resize(new_size)
+
+def get_roi(image):
+    """Extract a 512x512 ROI from the center of the given image."""
+    width, height = image.size
+    left = (width - 512)/2
+    top = (height - 512)/2
+    right = (width + 512)/2
+    bottom = (height + 512)/2
+    return image.crop((left, top, right, bottom))
+
+def generate_fuzzy_hash(image, threshold):
+    """Generate the fuzzy hash of the given image using the specified threshold."""
+    hash = imagehash.phash(image, hash_size=16)
+    return hash.fuzzy(threshold)
+
+def get_image_dimensions(image_path):
+    """Return the dimensions of the image at the given path."""
+    with Image.open(image_path) as image:
+        return image.size
+
+def hash_images(directory, threshold, verbose=False, verboser=False, debug=False):
+    """Generate fuzzy hashes for all images in the given directory."""
+    hashes = {}
+    for filename in os.listdir(directory):
+        if filename.endswith(".jpg") or filename.endswith(".png"):
+            filepath = os.path.join(directory, filename)
+            if verbose or verboser:
+                print(f"Processing {filename}...")
+            with Image.open(filepath) as image:
+                if debug:
+                    image.show()
+                normalized_image = normalize_image(image)
+                if debug:
+                    normalized_image.show()
+                roi_image = get_roi(normalized_image)
+                if debug:
+                    roi_image.show()
+                hash = generate_fuzzy_hash(roi_image, threshold)
+                hashes[filename] = hash
+                if verbose or verboser:
+                    print(f"{filename}: {hash}")
+    if verboser:
+        print(hashes)
+    return hashes
+
+def print_summary_table(hashes):
+    """Print a summary table of the hashes and their corresponding filenames and dimensions."""
+    print("{:<40} {:<20} {}".format('FILENAME', 'DIMENSIONS', 'FUZZY HASH'))
+    print("="*70)
+    for filename, hash in hashes.items():
+        dimensions = get_image_dimensions(filename)
+        dimensions_str = f"{dimensions[0]}x{dimensions[1]}"
+        print("{:<40} {:<20} {}".format(filename, dimensions_str, hash))
+
+def find_duplicate_images(hashes, threshold, verbose=False):
+    """Find and print a list of suspected duplicate images based on the given fuzzy hash values."""
+    suspected_duplicates = []
+    for filename, hash in hashes.items():
+        for compare_filename, compare_hash in hashes.items():
+            if filename != compare_filename and hash - compare_hash <= threshold:
+                suspected_duplicates.append((filename, compare_filename))
+    if suspected_duplicates:
+        print("\nSuspected duplicates:")
+        for pair in suspected_duplicates:
+            print(pair[0], pair[1])
+    else:
+        print("\nNo suspected duplicates found.")
+
+def main():
+    """Main function for the script."""
+    parser = argparse.ArgumentParser(description='Generate fuzzy hashes for all images in a directory.')
+    parser.add_argument('directory', help='the directory containing the images')
+    parser.add_argument('--threshold', type=int, default=5, choices=range(1, 16),
+                        help='the maximum hamming

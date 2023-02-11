@@ -1,0 +1,72 @@
+import os
+import sys
+import argparse
+import pdb
+
+from PIL import Image
+import imagehash
+
+def hash_images(input_dir, debug=False, verbose=False):
+    if debug:
+        pdb.set_trace()
+
+    # Ensure the input directory exists
+    if not os.path.exists(input_dir):
+        print(f"Error: directory {input_dir} does not exist")
+        return
+
+    # Dictionary to store the hashes of each image
+    hashes = {}
+
+    # Loop over each image in the input directory
+    for filename in os.listdir(input_dir):
+        if not filename.endswith('.jpg'):
+            continue
+
+        filepath = os.path.join(input_dir, filename)
+
+        # Load the image
+        with Image.open(filepath) as img:
+            # Normalize the image
+            img = img.convert('RGB')
+            img = img.resize((512, 512))
+
+            # Crop out the center 512x512 region
+            width, height = img.size
+            left = (width - 512) // 2
+            top = (height - 512) // 2
+            right = left + 512
+            bottom = top + 512
+            roi = img.crop((left, top, right, bottom))
+
+            # Calculate the hash and store it in the dictionary
+            phash = imagehash.phash(roi)
+            hashes[filename] = str(phash)
+
+        if debug:
+            roi.show()
+
+        if verbose:
+            print(f"{filename}: {hashes[filename]}")
+
+    # Find duplicates in the hash dictionary
+    duplicates = {}
+    for filename, phash in hashes.items():
+        if phash in duplicates:
+            duplicates[phash].append(filename)
+        else:
+            duplicates[phash] = [filename]
+
+    # Print suspected duplicates
+    for phash, filenames in duplicates.items():
+        if len(filenames) > 1:
+            print(f"Suspected duplicates: {filenames}")
+
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser(description='Process a directory of images and find duplicates using fuzzy hashing')
+    parser.add_argument('input_dir', help='directory containing images to process')
+    parser.add_argument('--debug', action='store_true', help='enable debug mode')
+    parser.add_argument('--verbose', action='store_true', help='enable verbose mode')
+    args = parser.parse_args()
+
+    hash_images(args.input_dir, debug=args.debug, verbose=args.verbose)

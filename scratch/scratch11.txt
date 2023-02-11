@@ -1,0 +1,136 @@
+import argparse
+import os
+import pdb
+import sys
+from collections import defaultdict
+
+import numpy as np
+from PIL import Image, ImageOps, ImageStat
+from imagehash import average_hash, phash
+
+def normalize_image(image, size=768):
+    """
+    Resizes the image so that the shortest side is equal to size.
+    """
+    width, height = image.size
+    if width < height:
+        ratio = size / width
+        new_width = size
+        new_height = round(height * ratio)
+    else:
+        ratio = size / height
+        new_width = round(width * ratio)
+        new_height = size
+    image = image.resize((new_width, new_height))
+    return image
+
+def get_roi(image):
+    """
+    Gets a 512x512 ROI from the center of the image.
+    """
+    width, height = image.size
+    left = (width - 512) / 2
+    upper = (height - 512) / 2
+    right = left + 512
+    lower = upper + 512
+    roi = image.crop((left, upper, right, lower))
+    return roi
+
+def phash_image(image, hash_size=16, threshold=10):
+    """
+    Calculates a phash for the given image with the given hash size and threshold.
+    """
+    return phash(image, hash_size=hash_size, hashfunc=np.fft.rfft, threshold=threshold)
+
+def get_image_stats(image):
+    """
+    Gets the filename, size, and average hash for the given image.
+    """
+    filename = os.path.basename(image.filename)
+    size = image.size
+    ah = average_hash(image)
+    return filename, size, str(ah)
+
+def process_image(image_path, threshold, verbose, verboser, debug):
+    """
+    Processes the given image by normalizing it, getting the ROI, and calculating the phash.
+    """
+    if verbose:
+        print(f"Processing {image_path}")
+    try:
+        with Image.open(image_path) as image:
+            if debug:
+                pdb.set_trace()
+            normalized_image = normalize_image(image)
+            roi = get_roi(normalized_image)
+            phash_value = phash_image(roi, threshold=threshold)
+            if verboser:
+                print(f"Normalized image: {normalized_image.size}")
+                print(f"ROI: {roi.size}")
+                print(f"Phash value: {phash_value}")
+            return get_image_stats(image), phash_value
+    except Exception as e:
+        if verbose:
+            print(f"Error processing {image_path}: {e}")
+        return None
+
+def get_image_files(directory):
+    """
+    Gets a list of all image files in the given directory.
+    """
+    image_files = []
+    for file in os.listdir(directory):
+        if file.endswith(".jpg") or file.endswith(".jpeg") or file.endswith(".png") or file.endswith(".gif"):
+            image_files.append(os.path.join(directory, file))
+    return image_files
+
+def process_images(directory, threshold, verbose=False, verboser=False, debug=False):
+    """
+    Processes all images in the given directory and returns a dictionary of fuzzy hashes to filenames.
+    """
+    images = get_image_files(directory)
+    hashes = defaultdict(list)
+    for image in images:
+        image_stats, phash_value = process_image(image, threshold, verbose, verboser, debug)
+        if image_stats is not None:
+            filename, size, ah = image_stats
+            if verbose:
+                print(f"{filename}: {size}, {ah}")
+            hashes[phash_value].append(filename)
+    return hashes
+
+    # Print out the hash values and create dictionary with filenames and their corresponding hash values
+    hash_dict = {}
+    print("\nHash values:")
+    for f in sorted_files:
+        print(f)
+        hash_val = calculate_hash(f, output_size, threshold, verbose)
+        hash_dict[f] = hash_val
+
+    # Print summary table
+    print("\nSummary table:")
+    print("Filename\tDimensions\tHash value")
+    for f in sorted_files:
+        with Image.open(f) as img:
+            w, h = img.size
+        print(f"{f}\t{w}x{h}\t{hash_dict[f]}")
+
+    # Check for duplicate images based on hash value
+    dup_dict = {}
+    for f, hash_val in hash_dict.items():
+        if hash_val not in dup_dict:
+            dup_dict[hash_val] = [f]
+        else:
+            dup_dict[hash_val].append(f)
+
+    # Print suspected duplicates
+    suspected_duplicates = [dup for dup in dup_dict.values() if len(dup) > 1]
+    if suspected_duplicates:
+        print("\nSuspected duplicate images:")
+        for dup in suspected_duplicates:
+            print(dup)
+    else:
+        print("\nNo suspected duplicate images found.")
+
+if __name__ == "__main__":
+    main()

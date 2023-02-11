@@ -1,0 +1,130 @@
+import os
+import sys
+import argparse
+import pdb
+from PIL import Image
+import imagehash
+
+def normalize(image_path):
+    with Image.open(image_path) as img:
+        width, height = img.size
+        if min(width, height) != 768:
+            if width > height:
+                ratio = 768 / height
+                new_size = (int(width * ratio), 768)
+            else:
+                ratio = 768 / width
+                new_size = (768, int(height * ratio))
+            img = img.resize(new_size, Image.ANTIALIAS)
+        center_x, center_y = img.size[0] // 2, img.size[1] // 2
+        roi = img.crop((center_x - 256, center_y - 256, center_x + 256, center_y + 256))
+        return roi
+
+def get_image_hash(image_path, hashfunc=imagehash.phash, hash_size=16):
+    image = normalize(image_path)
+    hash_value = hashfunc(image, hash_size=hash_size)
+    print(f"{image_path} -- hash: {hash_value}")
+    return hash_value
+
+def find_duplicates(image_dir, threshold, verbose, verboser, debug):
+    image_hashes = {}
+    for root, dirs, files in os.walk(image_dir):
+        for name in files:
+            if name.endswith(('.jpg', '.jpeg', '.png')):
+                path = os.path.join(root, name)
+                hash_value = get_image_hash(path)
+                if hash_value in image_hashes:
+                    image_hashes[hash_value].append(path)
+                else:
+                    image_hashes[hash_value] = [path]
+    if verbose or verboser:
+        print("Summary Table")
+        print("{:<40} {:<20} {}".format('File', 'Dimensions', 'Hash'))
+    for key in image_hashes:
+        if len(image_hashes[key]) > 1:
+            if verboser:
+                print(f"Potential duplicates -- hash: {key}")
+                for path in image_hashes[key]:
+                    print(f"\t{path}")
+            else:
+                if verbose:
+                    print(f"{image_hashes[key]}")
+                else:
+                    print(f"Potential duplicates found for hash {key}:")
+                    for path in image_hashes[key]:
+                        print(f"\t{path}")
+                if debug:
+                    pdb.run("normalize(path).show()")
+
+def compare_hashes(hash_dict, threshold):
+    suspected_duplicates = defaultdict(list)
+
+    for filename, image_hash in hash_dict.items():
+        for other_filename, other_hash in hash_dict.items():
+            if filename == other_filename:
+                continue
+            distance = image_hash - other_hash
+            if distance <= threshold:
+                suspected_duplicates[filename].append((other_filename, distance))
+
+    return suspected_duplicates
+
+
+def main():
+    parser = argparse.ArgumentParser(description='Find duplicate images in a directory.')
+    parser.add_argument('directory', type=str, help='Directory of images to check for duplicates')
+    parser.add_argument('-t', '--threshold', type=int, default=10,
+                        help='Threshold value to set the hamming distance used in the fuzzy hashing')
+    parser.add_argument('-v', '--verbose', action='store_true',
+                        help='Increase output verbosity')
+    parser.add_argument('-vv', '--verboser', action='store_true',
+                        help='Greatly increase output verbosity')
+    parser.add_argument('--debug', action='store_true',
+                        help='Enter pdb interactive debugger')
+    args = parser.parse_args()
+
+    if not os.path.isdir(args.directory):
+        print(f"{args.directory} is not a directory")
+        sys.exit(1)
+
+    # parse arguments
+    args = parse_args()
+
+    # set up verbose and debug logging
+    logging.basicConfig(level=logging.DEBUG if args.debug else logging.INFO)
+
+    # find image files in directory
+    image_files = find_image_files(args.input_dir)
+    logging.info(f"Found {len(image_files)} image files in {args.input_dir}")
+
+    # create hash dictionary
+    hash_dict = {}
+    for image_file in image_files:
+        normalized_image = normalize_image(image_file, args.debug)
+        roi_image = isolate_roi(normalized_image, args.debug)
+        image_hash = calculate_hash(roi_image, args.threshold)
+        hash_dict[image_file] = image_hash
+        print(f"{image_file}: {image_hash}")
+
+    # print summary table of filenames and their corresponding hashes
+    print("Image Hashes:")
+    print("-------------")
+    for filename, image_hash in hash_dict.items():
+        dimensions = get_image_dimensions(filename)
+        print(f"{filename}: {dimensions} -> {image_hash}")
+
+    # find suspected duplicate images
+    suspected_duplicates = compare_hashes(hash_dict, args.threshold)
+    if suspected_duplicates:
+        print("Suspected Duplicates:")
+        print("---------------------")
+        for filename, duplicates in suspected_duplicates.items():
+            print(f"{filename}:")
+            for duplicate, distance in duplicates:
+                print(f"\t{duplicate} (distance {distance})")
+    else:
+        print("No suspected duplicates found.")
+
+if __name__ == '__main__':
+    main()
+

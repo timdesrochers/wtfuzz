@@ -1,0 +1,78 @@
+import argparse
+import os
+import pdb
+import cv2
+
+def get_fuzzy_hash(image, threshold):
+    # calculate the pHash for the image
+    hash = cv2.img_hash.PHash_create()
+    return hash.compute(image).flatten()
+
+def get_roi(image):
+    h, w = image.shape[:2]
+    size = min(h, w)
+    h_offset = (h - size) // 2
+    w_offset = (w - size) // 2
+    roi = image[h_offset:h_offset+size, w_offset:w_offset+size]
+    return cv2.resize(roi, (512, 512))
+
+def normalize_image(image):
+    h, w = image.shape[:2]
+    size = min(h, w)
+    if size < 768:
+        new_h = int(h * 768 / size)
+        new_w = int(w * 768 / size)
+        image = cv2.resize(image, (new_w, new_h))
+    else:
+        image = cv2.resize(image, (768, 768))
+    return image
+
+def process_image(image_path, threshold, debug):
+    image = cv2.imread(image_path)
+    print(f'Processing image: {image_path}')
+    print(f'Original image dimensions: {image.shape[:2]}')
+
+    image = normalize_image(image)
+    print(f'Normalized image dimensions: {image.shape[:2]}')
+
+    roi = get_roi(image)
+    print(f'ROI image dimensions: {roi.shape[:2]}')
+    if debug:
+        pdb.set_trace()
+
+    fuzzy_hash = get_fuzzy_hash(roi, threshold)
+    print(f'Fuzzy hash: {fuzzy_hash}')
+    return image_path, fuzzy_hash
+
+def process_images(image_dir, threshold, debug):
+    image_hashes = {}
+    for filename in os.listdir(image_dir):
+        image_path = os.path.join(image_dir, filename)
+        if os.path.isfile(image_path):
+            image_path, fuzzy_hash = process_image(image_path, threshold, debug)
+            image_hashes[image_path] = fuzzy_hash
+
+    print('\nSummary:')
+    print('Filename\t\t\t\tOriginal Dimensions\t\tFuzzy Hash')
+    for image_path, fuzzy_hash in image_hashes.items():
+        image = cv2.imread(image_path)
+        print(f'{image_path}\t\t{image.shape[:2]}\t\t{fuzzy_hash}')
+
+    print('\nDuplicate Images:')
+    for image1, hash1 in image_hashes.items():
+        for image2, hash2 in image_hashes.items():
+            hamming_distance = cv2.norm(hash1, hash2, cv2.NORM_HAMMING)
+            if hamming_distance <= threshold and image1 != image2:
+                print(f'{image1} and {image2} are suspected duplicates with hamming distance of {hamming_distance}')
+
+def main():
+    parser = argparse.ArgumentParser(description='Process a directory of images and generate fuzzy hashes.')
+    parser.add_argument('image_dir', help='Directory of images to process')
+    parser.add_argument('--threshold', type=int, default=20, help='Hamming distance threshold for fuzzy hashing')
+    parser.add_argument('--debug', action='store_true', help='Enable debugging with pdb')
+    args = parser.parse_args()
+
+    process_images(args.image_dir, args.threshold, args.debug)
+
+if __name__ == '__main__':
+    main()
