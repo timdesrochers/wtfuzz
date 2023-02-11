@@ -1,64 +1,78 @@
-import argparse
 import os
-import sys
-import imagehash
+import argparse
+import logging
+import pdb
 from PIL import Image
+import imagehash
 
-def get_duplicate_images(folder, threshold, verbose):
-    if not os.path.exists(folder):
-        print("Folder path is invalid!")
-        sys.exit()
 
-    image_files = []
-    for file in os.listdir(folder):
-        if file.lower().endswith(('.png', '.jpg', '.jpeg')):
-            image_files.append(os.path.join(folder, file))
+def normalize_image(image):
+    width, height = image.size
+    short_side = min(width, height)
+    left = (width - short_side) / 2
+    top = (height - short_side) / 2
+    right = (width + short_side) / 2
+    bottom = (height + short_side) / 2
+    roi = image.crop((left, top, right, bottom)).resize((512, 512))
+    return roi
 
-    hash_dict = {}
-    for image_file in image_files:
-        with Image.open(image_file) as image:
-            hash_value = str(imagehash.average_hash(image))
-            if verbose:
-                print(f"{image_file} hash value: {hash_value}")
-            if hash_value in hash_dict:
-                hash_dict[hash_value].append(image_file)
-            else:
-                hash_dict[hash_value] = [image_file]
 
-    duplicate_images = []
-    for hash_value, images in hash_dict.items():
-        if len(images) > 1:
-            for i in range(len(images)):
-                for j in range(i+1, len(images)):
-                    diff = imagehash.hexhamming(images[i], images[j])
-                    if verbose:
-                        print(f"Hamming distance between {images[i]} and {images[j]}: {diff}")
-                    if diff <= threshold:
-                        duplicate_images.append((images[i], images[j]))
+def hash_image(filepath, threshold):
+    image = Image.open(filepath).convert('RGB')
+    normalized_image = normalize_image(image)
+    hash_value = imagehash.phash(normalized_image, hash_size=16)
+    return hash_value
 
-    if not duplicate_images:
-        print("No duplicate images found!")
-    else:
-        print("Duplicate images found:")
-        for pair in duplicate_images:
-            print(pair)
 
 def main():
-    parser = argparse.ArgumentParser(description='Find duplicate images')
-    parser.add_argument('folder', help='path to image folder')
-    parser.add_argument('--threshold', type=int, default=5,
-                        help='threshold for considering images duplicates (recommended range: 3-10)')
-    parser.add_argument('--verbose', '-v', action='store_true', help='increase verbosity')
-    parser.add_argument('--verboser', '-vv', action='store_true', help='increase verbosity and print comments')
-
+    parser = argparse.ArgumentParser(description='Fuzzy image hashing program')
+    parser.add_argument('dir', help='directory to search for images')
+    parser.add_argument('--threshold', type=int, default=10, help='maximum hamming distance to consider duplicates')
+    parser.add_argument('--verbose', action='store_true', help='increase output verbosity')
+    parser.add_argument('--verboser', action='store_true', help='increase output verbosity with comments')
+    parser.add_argument('--debug', action='store_true', help='run in debug mode')
     args = parser.parse_args()
-
+    
+    if args.debug:
+        pdb.set_trace()
+    
+    logging_level = logging.DEBUG if args.verbose or args.verboser else logging.INFO
+    logging.basicConfig(format='%(message)s', level=logging_level)
+    
+    hash_dict = {}
+    for root, dirs, files in os.walk(args.dir):
+        for file in files:
+            filepath = os.path.join(root, file)
+            try:
+                hash_value = hash_image(filepath, args.threshold)
+            except OSError:
+                logging.warning(f"Could not open {filepath}")
+                continue
+            
+            if hash_value in hash_dict:
+                duplicate_filepath = hash_dict[hash_value]
+                if args.verboser:
+                    logging.info(f"{filepath} has the same hash value as {duplicate_filepath}")
+                if args.verbose:
+                    logging.info(f"Possible duplicate: {filepath} and {duplicate_filepath}")
+            else:
+                hash_dict[hash_value] = filepath
+    
     if args.verboser:
-        print("Getting all image files from folder")
-        print("Calculating image hashes")
-        print("Looking for duplicates using hamming distance")
+        logging.info('Fuzzy hash values:')
+        for hash_value, filepath in hash_dict.items():
+            logging.info(f"{hash_value}: {filepath}")
+    
+    if args.verbose or args.verboser:
+        logging.info('Suspected duplicates:')
+    for hash_value, filepath in hash_dict.items():
+        suspected_files = [v for k, v in hash_dict.items() if k - hash_value <= args.threshold and k != hash_value]
+        if len(suspected_files) > 0:
+            if args.verboser:
+                logging.info(f"{filepath}: {hash_value}")
+            if args.verbose or args.verboser:
+                logging.info(f"Suspected duplicates of {filepath}: {', '.join(suspected_files)}")
 
-    get_duplicate_images(args.folder, args.threshold, args.verbose)
 
 if __name__ == '__main__':
     main()
